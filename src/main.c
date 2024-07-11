@@ -1,7 +1,15 @@
+#include <security/_pam_types.h>
 #include <signal.h>
 #include <stdio.h>
 #include <termios.h>
 #include <unistd.h>
+#include <security/pam_appl.h>
+#include <security/pam_misc.h>
+
+static struct pam_conv conv = {
+    misc_conv,
+    NULL
+};
 
 static struct termios term;
 static volatile char run = 1;
@@ -40,14 +48,49 @@ void usr1handler(__attribute__ ((unused)) int _) { run = 0; }
 int main() {
     signal(SIGUSR1, usr1handler);
     if (t_set()) {
-        puts("failed to set terminal attributes");
+        fputs("failed to set terminal attributes\n", stderr);
         return 1;
     }
+
+    const char* user = getlogin();
+    if (user == NULL) {
+        fputs("failed to get current user name\n", stderr);
+        return 3;
+    }
+
     signalHandler(-1); // init
-    while(run) {}
+
+    pam_handle_t* pamh = NULL;
+    int tmp;
+
+    if ((tmp = pam_start("ttylock", user, &conv, &pamh)) != PAM_SUCCESS) {
+        fprintf(stderr, "pam_start failed: %s\n", pam_strerror(pamh, tmp));
+        t_restore(); // don't care for fail, because we can't do anything.
+        return 4;
+    }
+
+    while(run) {
+        if (pam_authenticate(pamh, 0) == PAM_SUCCESS) {
+            run = 0;
+        } else {
+            if (run) { // for SIGUSR1 unlock
+                puts("authentication failure");
+            }
+        }
+    }
+
+   if (pam_end(pamh, tmp) != PAM_SUCCESS) {
+       fputs("pam_end failed\n", stderr);
+       t_restore();
+       return 5;
+    }
+
     if (t_restore()) {
-        puts("failed to restore terminal attributes");
+        fputs("failed to restore terminal attributes\n", stderr);
         return 2;
     }
+
+    puts("unlocked!");
+
     return 0;
 }
