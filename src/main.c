@@ -69,13 +69,14 @@ int main() {
         return 4;
     }
 
+    write(STDOUT_FILENO, "\033[s\033[?1049h", 11);  // save cursor position, use alt buffer
     while(run) {
+        write(STDOUT_FILENO, "\033[2J\033[H", 7);   // clear screen, move cursor
         if (pam_authenticate(pamh, 0) == PAM_SUCCESS) {
             run = 0;
         } else {
-            if (run) { // for SIGUSR1 unlock
-                puts("authentication failure");
-            }
+            // for SIGUSR1 unlock
+            if (run) { puts("authentication failed"); sleep(1); }
         }
     }
 
@@ -90,6 +91,7 @@ int main() {
         return 2;
     }
 
+    write(STDOUT_FILENO, "\033[?1049l\033[u", 11);  // exit alt buffer, restore cursor
     puts("unlocked!");
 
     return 0;
