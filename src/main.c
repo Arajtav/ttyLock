@@ -64,7 +64,7 @@ int main() {
         fputs("failed to get terminal size\n", stderr);
     } else {
         y = (winsz.ws_row/2)+1;
-        x = (winsz.ws_col/2)+1;
+        x = (winsz.ws_col/2)-4; // +1 - length of password divided by 2
     }
 
     signal(SIGUSR1, usr1handler);
@@ -92,17 +92,16 @@ int main() {
 
     write(STDOUT_FILENO, "\033[s\033[?1049h", 11);  // save cursor position, use alt buffer
     while(run) {
-        // length of "password: " is 10
         write(STDOUT_FILENO, "\033[2J", 4); // clear screen
-        printf("\033[%d;%dH", y, x == 1 ? 1 : x-4); // move cursor
+        printf("\033[%d;%dH", y, x); // move cursor
         fflush(stdout);
         if (pam_authenticate(pamh, 0) == PAM_SUCCESS) {
             break;
         } else {
             // for SIGUSR1 unlock, signals cause pam_authenticate to fail.
             if (!run) { break; }
-            // length of "authentication failure" is 22
-            printf("\033[%d;%dHauthentication failure", y+1, x == 1 ? 1 : x-10);  // TODO: RELATIVE CURSOR MOVE, ALSO THEN REPLACE X WITH PRECALCULATED
+            // note: x-6 is -5 if ioctl failed, but terminal since terminal can't do that, it's being clipped to 1. clipping that in here is redundant
+            printf("\033[%dGauthentication failure", x-6);  // -6 is because of difference in length of "password: " and "authentication failure"
             fflush(stdout);
             sleep(1);
         }
