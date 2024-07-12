@@ -1,8 +1,9 @@
-#include <security/_pam_types.h>
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <security/_pam_types.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
@@ -17,12 +18,19 @@ static volatile char run = 1;
 char t_set() {
     if (tcgetattr(STDIN_FILENO, &term) < 0) { return 1; }
 
-    cc_t tmp = term.c_cc[VSUSP];
-    term.c_cc[VSUSP] = _POSIX_VDISABLE;
+    struct termios uterm;
+    memcpy(&uterm, &term, sizeof(term));
 
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) { return 2; }
+    // just in case, even tho signals are ignored, perhaps better way would be to just memset uterm.c_cc with _POSIX_VDISABLE;
+    uterm.c_cc[VSUSP] = _POSIX_VDISABLE;
+    uterm.c_cc[VINTR] = _POSIX_VDISABLE;
+    uterm.c_cc[VKILL] = _POSIX_VDISABLE;
+    uterm.c_cc[VQUIT] = _POSIX_VDISABLE;
+    uterm.c_cc[VSTOP] = _POSIX_VDISABLE;
+    uterm.c_cc[VSWTC] = _POSIX_VDISABLE;
 
-    term.c_cc[VSUSP] = tmp;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &uterm) < 0) { return 2; }
+
     return 0;
 }
 
@@ -34,7 +42,7 @@ void signalHandler(int sig) {
     if (sig == -1) {
         signal(SIGINT, signalHandler);
         signal(SIGHUP, signalHandler);
-        signal(SIGKILL, signalHandler);
+        signal(SIGKILL, signalHandler); // tho i'm almost sure i can't catch SIGKILL
         signal(SIGQUIT, signalHandler);
         signal(SIGTERM, signalHandler);
         signal(SIGTSTP, signalHandler);
