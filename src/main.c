@@ -6,6 +6,7 @@
 #include <security/_pam_types.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
+#include <sys/ioctl.h>
 
 static struct pam_conv conv = {
     misc_conv,
@@ -34,8 +35,10 @@ char t_set() {
     return 0;
 }
 
-char t_restore() {
-    return (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0);
+void t_restore() {
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &term) < 0) {
+        fputs("failed to restore terminal\n", stderr);
+    }
 }
 
 void signalHandler(int sig) {
@@ -54,6 +57,16 @@ void signalHandler(int sig) {
 void usr1handler(__attribute__ ((unused)) int _) { run = 0; }
 
 int main() {
+    int y = 1;
+    int x = 1;
+    struct winsize winsz;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &winsz) != 0) {
+        fputs("failed to get terminal size\n", stderr);
+    } else {
+        y = (winsz.ws_row/2)+1;
+        x = (winsz.ws_col/2)+1;
+    }
+
     signal(SIGUSR1, usr1handler);
     if (t_set()) {
         fputs("failed to set terminal attributes\n", stderr);
@@ -73,18 +86,25 @@ int main() {
 
     if ((tmp = pam_start("ttylock", user, &conv, &pamh)) != PAM_SUCCESS) {
         fprintf(stderr, "pam_start failed: %s\n", pam_strerror(pamh, tmp));
-        t_restore(); // don't care for fail, because we can't do anything.
+        t_restore();
         return 4;
     }
 
     write(STDOUT_FILENO, "\033[s\033[?1049h", 11);  // save cursor position, use alt buffer
     while(run) {
-        write(STDOUT_FILENO, "\033[2J\033[H", 7);   // clear screen, move cursor
+        // length of "password: " is 10
+        write(STDOUT_FILENO, "\033[2J", 4); // clear screen
+        printf("\033[%d;%dH", y, x == 1 ? 1 : x-4); // move cursor
+        fflush(stdout);
         if (pam_authenticate(pamh, 0) == PAM_SUCCESS) {
-            run = 0;
+            break;
         } else {
-            // for SIGUSR1 unlock
-            if (run) { puts("authentication failed"); sleep(1); }
+            // for SIGUSR1 unlock, signals cause pam_authenticate to fail.
+            if (!run) { break; }
+            // length of "authentication failure" is 22
+            printf("\033[%d;%dHauthentication failure", y+1, x == 1 ? 1 : x-10);  // TODO: RELATIVE CURSOR MOVE, ALSO THEN REPLACE X WITH PRECALCULATED
+            fflush(stdout);
+            sleep(1);
         }
     }
 
@@ -94,10 +114,7 @@ int main() {
        return 5;
     }
 
-    if (t_restore()) {
-        fputs("failed to restore terminal attributes\n", stderr);
-        return 2;
-    }
+    t_restore();
 
     write(STDOUT_FILENO, "\033[?1049l\033[u", 11);  // exit alt buffer, restore cursor
     puts("unlocked!");
